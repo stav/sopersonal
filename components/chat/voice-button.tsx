@@ -5,6 +5,8 @@ import { useSpeechRecognition } from "@/lib/voice/use-speech-recognition";
 import { useSpeechSynthesis } from "@/lib/voice/use-speech-synthesis";
 import type { VoiceState } from "@/lib/voice/voice-manager";
 
+type ExtendedVoiceState = VoiceState | "TRANSCRIBING";
+
 interface VoiceButtonProps {
   onTranscript: (text: string) => void;
   isProcessing: boolean;
@@ -16,12 +18,19 @@ export function VoiceButton({
   isProcessing,
   lastAssistantMessage,
 }: VoiceButtonProps) {
-  const { isListening, transcript, isSupported: sttSupported, error, start, stop } =
-    useSpeechRecognition();
+  const {
+    isListening,
+    isTranscribing,
+    transcript,
+    isSupported: sttSupported,
+    error,
+    start,
+    stop,
+  } = useSpeechRecognition();
   const { isSpeaking, isSupported: ttsSupported, speak, cancel } =
     useSpeechSynthesis();
 
-  const [voiceState, setVoiceState] = useState<VoiceState>("IDLE");
+  const [voiceState, setVoiceState] = useState<ExtendedVoiceState>("IDLE");
   const [lastSpoken, setLastSpoken] = useState<string>("");
 
   // Auto-clear errors after 4 seconds
@@ -40,19 +49,21 @@ export function VoiceButton({
       setVoiceState("SPEAKING");
     } else if (isProcessing) {
       setVoiceState("PROCESSING");
+    } else if (isTranscribing) {
+      setVoiceState("TRANSCRIBING");
     } else if (isListening) {
       setVoiceState("LISTENING");
     } else {
       setVoiceState("IDLE");
     }
-  }, [isListening, isProcessing, isSpeaking]);
+  }, [isListening, isTranscribing, isProcessing, isSpeaking]);
 
-  // When listening stops and we have a transcript, submit it
+  // When transcription completes and we have a transcript, submit it
   useEffect(() => {
-    if (!isListening && transcript.trim()) {
+    if (!isListening && !isTranscribing && transcript.trim()) {
       onTranscript(transcript);
     }
-  }, [isListening, transcript, onTranscript]);
+  }, [isListening, isTranscribing, transcript, onTranscript]);
 
   // Auto-speak new assistant messages
   useEffect(() => {
@@ -79,6 +90,7 @@ export function VoiceButton({
         cancel();
         break;
       case "PROCESSING":
+      case "TRANSCRIBING":
         // Nothing to do while processing
         break;
     }
@@ -86,8 +98,20 @@ export function VoiceButton({
 
   if (!sttSupported) {
     return (
-      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted text-muted-foreground opacity-60" title="Voice not supported on this browser">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <div
+        className="flex h-16 w-16 items-center justify-center rounded-full bg-muted text-muted-foreground opacity-60"
+        title="Voice not supported on this browser"
+      >
+        <svg
+          width="28"
+          height="28"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
           <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
           <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
           <line x1="1" y1="1" x2="23" y2="23" />
@@ -96,10 +120,22 @@ export function VoiceButton({
     );
   }
 
-  const stateConfig: Record<VoiceState, { icon: React.ReactNode; label: string; className: string }> = {
+  const stateConfig: Record<
+    ExtendedVoiceState,
+    { icon: React.ReactNode; label: string; className: string }
+  > = {
     IDLE: {
       icon: (
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg
+          width="28"
+          height="28"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
           <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
           <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
           <line x1="12" y1="19" x2="12" y2="23" />
@@ -122,9 +158,34 @@ export function VoiceButton({
       label: "Listening... tap to stop",
       className: "bg-red-500 text-white voice-pulse",
     },
+    TRANSCRIBING: {
+      icon: (
+        <svg
+          className="animate-spin"
+          width="28"
+          height="28"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+        </svg>
+      ),
+      label: "Transcribing...",
+      className: "bg-amber-500 text-white",
+    },
     PROCESSING: {
       icon: (
-        <svg className="animate-spin" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <svg
+          className="animate-spin"
+          width="28"
+          height="28"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
           <path d="M21 12a9 9 0 1 1-6.219-8.56" />
         </svg>
       ),
@@ -133,7 +194,16 @@ export function VoiceButton({
     },
     SPEAKING: {
       icon: (
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg
+          width="28"
+          height="28"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
           <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
           <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
           <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
@@ -150,7 +220,7 @@ export function VoiceButton({
     <div className="flex flex-col items-center gap-2">
       <button
         onClick={handlePress}
-        disabled={voiceState === "PROCESSING"}
+        disabled={voiceState === "PROCESSING" || voiceState === "TRANSCRIBING"}
         className={`flex h-16 w-16 items-center justify-center rounded-full shadow-lg transition-all disabled:opacity-60 ${config.className}`}
         aria-label={config.label}
         title={config.label}
@@ -158,7 +228,9 @@ export function VoiceButton({
         {config.icon}
       </button>
       {displayError && (
-        <p className="max-w-48 text-center text-xs text-red-500">{displayError}</p>
+        <p className="max-w-48 text-center text-xs text-red-500">
+          {displayError}
+        </p>
       )}
     </div>
   );

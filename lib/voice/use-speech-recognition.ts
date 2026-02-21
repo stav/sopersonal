@@ -4,6 +4,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 interface SpeechRecognitionHook {
   isListening: boolean;
+  isTranscribing: boolean;
   transcript: string;
   isSupported: boolean;
   error: string | null;
@@ -11,80 +12,35 @@ interface SpeechRecognitionHook {
   stop: () => void;
 }
 
-// Type declarations for Web Speech API
-interface SpeechRecognitionEvent extends Event {
-  results: SpeechRecognitionResultList;
-  resultIndex: number;
-}
-
-interface SpeechRecognitionResultList {
-  length: number;
-  item(index: number): SpeechRecognitionResult;
-  [index: number]: SpeechRecognitionResult;
-}
-
-interface SpeechRecognitionResult {
-  isFinal: boolean;
-  length: number;
-  item(index: number): SpeechRecognitionAlternative;
-  [index: number]: SpeechRecognitionAlternative;
-}
-
-interface SpeechRecognitionAlternative {
-  transcript: string;
-  confidence: number;
-}
-
-interface SpeechRecognitionInstance extends EventTarget {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  onresult: ((event: SpeechRecognitionEvent) => void) | null;
-  onend: (() => void) | null;
-  onerror: ((event: Event & { error: string }) => void) | null;
-  start: () => void;
-  stop: () => void;
-  abort: () => void;
-}
-
-declare global {
-  interface Window {
-    SpeechRecognition?: new () => SpeechRecognitionInstance;
-    webkitSpeechRecognition?: new () => SpeechRecognitionInstance;
-  }
-}
-
 export function useSpeechRecognition(): SpeechRecognitionHook {
   const [isListening, setIsListening] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [isSupported, setIsSupported] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
 
   useEffect(() => {
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
-    setIsSupported(!!SpeechRecognition);
+    setIsSupported(
+      typeof navigator !== "undefined" &&
+        !!navigator.mediaDevices?.getUserMedia
+    );
   }, []);
 
   const start = useCallback(async () => {
     setError(null);
+    setTranscript("");
 
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setError("Speech recognition is not supported on this browser.");
-      return;
-    }
-
-    // Pre-request mic permission — PWA standalone mode needs this
+    let stream: MediaStream;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach((t) => t.stop());
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (err) {
       const name = err instanceof DOMException ? err.name : "";
       if (name === "NotAllowedError") {
-        setError("Microphone permission denied. Check your browser/phone settings.");
+        setError(
+          "Microphone permission denied. Check your browser/phone settings."
+        );
       } else if (name === "NotFoundError") {
         setError("No microphone found on this device.");
       } else {
@@ -93,61 +49,85 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
       return;
     }
 
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = true;
-    recognition.lang = "en-US";
+    // Pick a supported mime type
+    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm;codecs=opus"
+      : MediaRecorder.isTypeSupported("audio/mp4")
+        ? "audio/mp4"
+        : "audio/wav";
 
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
-      let finalTranscript = "";
-      let interimTranscript = "";
+    const recorder = new MediaRecorder(stream, { mimeType });
+    chunksRef.current = [];
 
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i];
-        if (result.isFinal) {
-          finalTranscript += result[0].transcript;
-        } else {
-          interimTranscript += result[0].transcript;
-        }
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) {
+        chunksRef.current.push(e.data);
+      }
+    };
+
+    recorder.onstop = async () => {
+      // Stop all mic tracks
+      stream.getTracks().forEach((t) => t.stop());
+
+      const blob = new Blob(chunksRef.current, { type: mimeType });
+      chunksRef.current = [];
+
+      if (blob.size === 0) {
+        setError("No audio recorded.");
+        return;
       }
 
-      setTranscript(finalTranscript || interimTranscript);
+      // Send to Whisper API
+      setIsTranscribing(true);
+      try {
+        const formData = new FormData();
+        const ext = mimeType.includes("mp4") ? "mp4" : "webm";
+        formData.append("audio", blob, `recording.${ext}`);
+
+        const response = await fetch("/api/transcribe", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const data = await response.json().catch(() => null);
+          setError(data?.error || "Transcription failed.");
+          return;
+        }
+
+        const { text } = await response.json();
+        if (text?.trim()) {
+          setTranscript(text.trim());
+        } else {
+          setError("No speech detected. Try again.");
+        }
+      } catch {
+        setError("Network error. Check your connection.");
+      } finally {
+        setIsTranscribing(false);
+      }
     };
 
-    recognition.onend = () => {
-      recognitionRef.current = null;
-      setIsListening(false);
-    };
-
-    recognition.onerror = (event: Event & { error: string }) => {
-      recognitionRef.current = null;
-      setIsListening(false);
-      const errorMap: Record<string, string> = {
-        "not-allowed": "Microphone permission denied.",
-        "no-speech": "No speech detected. Try again.",
-        "network": "Network error. Check your connection.",
-        "audio-capture": "No microphone found.",
-      };
-      setError(errorMap[event.error] || `Speech recognition error: ${event.error}`);
-    };
-
-    recognitionRef.current = recognition;
-    recognition.start();
+    mediaRecorderRef.current = recorder;
+    recorder.start();
     setIsListening(true);
-    setTranscript("");
   }, []);
 
   const stop = useCallback(() => {
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch {
-        // Already stopped
-      }
-      recognitionRef.current = null;
+    if (mediaRecorderRef.current?.state === "recording") {
+      mediaRecorderRef.current.stop();
     }
+    mediaRecorderRef.current = null;
     setIsListening(false);
   }, []);
 
-  return { isListening, transcript, isSupported, error, start, stop };
+  return {
+    isListening,
+    isTranscribing,
+    transcript,
+    isSupported,
+    error,
+    start,
+    stop,
+  };
 }
