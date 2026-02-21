@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "SoPersonal",
     short_name: "SoPersonal",
     description: "Your AI parenting companion",
-    start_url: "/chat",
+    start_url: "/",
     display: "standalone",
     background_color: "#ffffff",
     theme_color: "#6366f1",

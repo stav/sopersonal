@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { BottomNav } from "@/components/layout/bottom-nav";
 import { ServiceWorkerRegistrar } from "@/components/layout/sw-registrar";
 import "./globals.css";
 
@@ -17,7 +16,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "SoPersonal — AI Parenting Companion",
   description:
-    "Get personalized parenting advice grounded in the books and resources you trust.",
+    "Get personalized parenting advice grounded in evidence-based resources.",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
@@ -52,7 +51,6 @@ export default function RootLayout({
       >
         <div className="flex h-[100dvh] flex-col">
           <main className="flex-1 overflow-hidden">{children}</main>
-          <BottomNav />
         </div>
         <ServiceWorkerRegistrar />
       </body>

@@ -2,8 +2,37 @@ import { streamText, UIMessage, convertToModelMessages } from "ai";
 import { model } from "@/lib/ai/client";
 import { buildSystemPrompt } from "@/lib/ai/system-prompt";
 import { retrieveContext } from "@/lib/ai/rag";
+import { createServerClient } from "@/lib/supabase/server";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 export async function POST(req: Request) {
+  // Auth check
+  const supabase = await createServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  // Rate limit check
+  const { allowed, remaining } = await checkRateLimit(supabase, user.id);
+  if (!allowed) {
+    return new Response(
+      JSON.stringify({
+        error: "Rate limit exceeded. Please try again later.",
+      }),
+      {
+        status: 429,
+        headers: {
+          "Content-Type": "application/json",
+          "X-RateLimit-Remaining": "0",
+        },
+      }
+    );
+  }
+
   const { messages }: { messages: UIMessage[] } = await req.json();
 
   // Extract text from the last user message for RAG
@@ -31,5 +60,7 @@ export async function POST(req: Request) {
     messages: modelMessages,
   });
 
-  return result.toUIMessageStreamResponse();
+  return result.toUIMessageStreamResponse({
+    headers: { "X-RateLimit-Remaining": String(remaining) },
+  });
 }

@@ -1,5 +1,5 @@
-const CACHE_NAME = "so-personal-v1";
-const APP_SHELL = ["/", "/chat", "/documents"];
+const CACHE_NAME = "so-personal-v2";
+const APP_SHELL = ["/", "/login", "/subscribe"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
