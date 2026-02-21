@@ -65,10 +65,19 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
     setIsSupported(!!SpeechRecognition);
   }, []);
 
-  const start = useCallback(() => {
+  const start = useCallback(async () => {
     const SpeechRecognition =
       window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) return;
+
+    // Pre-request mic permission — PWA standalone mode needs this
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((t) => t.stop());
+    } catch {
+      // Permission denied or no mic
+      return;
+    }
 
     const recognition = new SpeechRecognition();
     recognition.continuous = false;
