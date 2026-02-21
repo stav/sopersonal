@@ -20,6 +20,7 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
   const [error, setError] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const maxDurationRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setIsSupported(
@@ -56,7 +57,10 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
         ? "audio/mp4"
         : "audio/wav";
 
-    const recorder = new MediaRecorder(stream, { mimeType });
+    const recorder = new MediaRecorder(stream, {
+      mimeType,
+      audioBitsPerSecond: 16000,
+    });
     chunksRef.current = [];
 
     recorder.ondataavailable = (e) => {
@@ -111,9 +115,18 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
     mediaRecorderRef.current = recorder;
     recorder.start();
     setIsListening(true);
+
+    // Auto-stop after 60 seconds
+    maxDurationRef.current = setTimeout(() => {
+      stop();
+    }, 60000);
   }, []);
 
   const stop = useCallback(() => {
+    if (maxDurationRef.current) {
+      clearTimeout(maxDurationRef.current);
+      maxDurationRef.current = null;
+    }
     if (mediaRecorderRef.current?.state === "recording") {
       mediaRecorderRef.current.stop();
     }
