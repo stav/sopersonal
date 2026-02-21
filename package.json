@@ -1,5 +1,5 @@
 {
-  "name": "so-personal-temp",
+  "name": "so-personal",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,13 +9,19 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^3.0.30",
+    "@ai-sdk/react": "^3.0.99",
+    "@supabase/supabase-js": "^2.97.0",
+    "ai": "^6.0.97",
     "next": "16.1.6",
+    "pdf-parse": "^2.4.5",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pdf-parse": "^1.1.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
