@@ -18,6 +18,9 @@ export function VoiceButton({
   isProcessing,
   lastAssistantMessage,
 }: VoiceButtonProps) {
+  const [conversationMode, setConversationMode] = useState(false);
+  const conversationModeRef = useRef(false);
+
   const {
     isListening,
     isTranscribing,
@@ -26,12 +29,17 @@ export function VoiceButton({
     error,
     start,
     stop,
-  } = useSpeechRecognition();
+  } = useSpeechRecognition({ autoStopOnSilence: conversationMode });
   const { isSpeaking, isSupported: ttsSupported, speak, cancel } =
     useSpeechSynthesis();
 
   const [voiceState, setVoiceState] = useState<ExtendedVoiceState>("IDLE");
   const [lastSpoken, setLastSpoken] = useState<string>("");
+
+  // Keep ref in sync
+  useEffect(() => {
+    conversationModeRef.current = conversationMode;
+  }, [conversationMode]);
 
   // Auto-clear errors after 4 seconds
   const [displayError, setDisplayError] = useState<string | null>(null);
@@ -85,9 +93,43 @@ export function VoiceButton({
     }
   }, [lastAssistantMessage, isProcessing, ttsSupported, speak, lastSpoken]);
 
+  // Conversation mode: auto-restart listening whenever we land on IDLE
+  useEffect(() => {
+    if (
+      !conversationModeRef.current ||
+      isListening ||
+      isTranscribing ||
+      isProcessing ||
+      isSpeaking
+    )
+      return;
+
+    // We're IDLE but conversation mode is on — restart listening
+    const delay = error ? 1000 : 500;
+    const timer = setTimeout(() => {
+      if (conversationModeRef.current) {
+        submittedTranscriptRef.current = "";
+        start();
+      }
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [isListening, isTranscribing, isProcessing, isSpeaking, error, start]);
+
   const handlePress = useCallback(async () => {
+    if (conversationMode) {
+      // Exit conversation mode
+      setConversationMode(false);
+      conversationModeRef.current = false;
+      cancel();
+      stop();
+      return;
+    }
+
     switch (voiceState) {
       case "IDLE":
+        // Enter conversation mode
+        setConversationMode(true);
+        conversationModeRef.current = true;
         submittedTranscriptRef.current = "";
         await start();
         break;
@@ -102,7 +144,7 @@ export function VoiceButton({
         // Nothing to do while processing
         break;
     }
-  }, [voiceState, start, stop, cancel]);
+  }, [voiceState, conversationMode, start, stop, cancel]);
 
   if (!sttSupported) {
     return (
@@ -163,7 +205,7 @@ export function VoiceButton({
           <span className="inline-block h-4 w-1 animate-pulse rounded-full bg-white [animation-delay:100ms]" />
         </div>
       ),
-      label: "Listening... tap to stop",
+      label: conversationMode ? "Conversation mode — tap to end" : "Listening... tap to stop",
       className: "bg-red-500 text-white voice-pulse",
     },
     TRANSCRIBING: {
@@ -180,7 +222,7 @@ export function VoiceButton({
           <path d="M21 12a9 9 0 1 1-6.219-8.56" />
         </svg>
       ),
-      label: "Transcribing...",
+      label: conversationMode ? "Transcribing..." : "Transcribing...",
       className: "bg-amber-500 text-white",
     },
     PROCESSING: {
@@ -197,7 +239,7 @@ export function VoiceButton({
           <path d="M21 12a9 9 0 1 1-6.219-8.56" />
         </svg>
       ),
-      label: "Thinking...",
+      label: conversationMode ? "Thinking..." : "Thinking...",
       className: "bg-muted text-foreground",
     },
     SPEAKING: {
@@ -217,7 +259,7 @@ export function VoiceButton({
           <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
         </svg>
       ),
-      label: "Speaking... tap to stop",
+      label: conversationMode ? "Speaking... tap to end" : "Speaking... tap to stop",
       className: "bg-green-500 text-white voice-pulse",
     },
   };
@@ -228,14 +270,20 @@ export function VoiceButton({
     <div className="flex flex-col items-center gap-2">
       <button
         onClick={handlePress}
-        disabled={voiceState === "PROCESSING" || voiceState === "TRANSCRIBING"}
-        className={`flex h-16 w-16 items-center justify-center rounded-full shadow-lg transition-all disabled:opacity-60 ${config.className}`}
+        disabled={!conversationMode && (voiceState === "PROCESSING" || voiceState === "TRANSCRIBING")}
+        className={`relative flex h-16 w-16 items-center justify-center rounded-full shadow-lg transition-all disabled:opacity-60 ${config.className}`}
         aria-label={config.label}
         title={config.label}
       >
+        {conversationMode && (
+          <span className="absolute inset-0 rounded-full border-2 border-white/50 animate-ping" />
+        )}
         {config.icon}
       </button>
-      {displayError && (
+      {conversationMode && voiceState !== "IDLE" && (
+        <p className="text-xs text-muted-foreground">Tap to end conversation</p>
+      )}
+      {displayError && !conversationMode && (
         <p className="max-w-48 text-center text-xs text-red-500">
           {displayError}
         </p>

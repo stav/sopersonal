@@ -2,6 +2,10 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 
+interface SpeechRecognitionOptions {
+  autoStopOnSilence?: boolean;
+}
+
 interface SpeechRecognitionHook {
   isListening: boolean;
   isTranscribing: boolean;
@@ -12,7 +16,15 @@ interface SpeechRecognitionHook {
   stop: () => void;
 }
 
-export function useSpeechRecognition(): SpeechRecognitionHook {
+const SILENCE_THRESHOLD = 0.015;
+const SILENCE_DURATION = 1500;
+const MIN_SPEECH_DURATION = 500;
+
+export function useSpeechRecognition(
+  options: SpeechRecognitionOptions = {}
+): SpeechRecognitionHook {
+  const { autoStopOnSilence = false } = options;
+
   const [isListening, setIsListening] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcript, setTranscript] = useState("");
@@ -22,11 +34,112 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
   const chunksRef = useRef<Blob[]>([]);
   const maxDurationRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Silence detection refs
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const speechDetectedRef = useRef(false);
+  const speechStartTimeRef = useRef(0);
+  const monitorIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const autoStopRef = useRef(autoStopOnSilence);
+
+  // Keep ref in sync with prop
+  useEffect(() => {
+    autoStopRef.current = autoStopOnSilence;
+  }, [autoStopOnSilence]);
+
   useEffect(() => {
     setIsSupported(
       typeof navigator !== "undefined" &&
         !!navigator.mediaDevices?.getUserMedia
     );
+  }, []);
+
+  const cleanupSilenceDetection = useCallback(() => {
+    if (monitorIntervalRef.current) {
+      clearInterval(monitorIntervalRef.current);
+      monitorIntervalRef.current = null;
+    }
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
+    analyserRef.current = null;
+    speechDetectedRef.current = false;
+    speechStartTimeRef.current = 0;
+  }, []);
+
+  const stopRef = useRef<() => void>(() => {});
+
+  const stop = useCallback(() => {
+    if (maxDurationRef.current) {
+      clearTimeout(maxDurationRef.current);
+      maxDurationRef.current = null;
+    }
+    cleanupSilenceDetection();
+    if (mediaRecorderRef.current?.state === "recording") {
+      mediaRecorderRef.current.stop();
+    }
+    mediaRecorderRef.current = null;
+    setIsListening(false);
+  }, [cleanupSilenceDetection]);
+
+  // Keep stopRef in sync
+  useEffect(() => {
+    stopRef.current = stop;
+  }, [stop]);
+
+  const setupSilenceDetection = useCallback((stream: MediaStream) => {
+    const audioContext = new AudioContext();
+    const source = audioContext.createMediaStreamSource(stream);
+    const analyser = audioContext.createAnalyser();
+    analyser.fftSize = 2048;
+    source.connect(analyser);
+
+    audioContextRef.current = audioContext;
+    analyserRef.current = analyser;
+    speechDetectedRef.current = false;
+    speechStartTimeRef.current = 0;
+
+    const dataArray = new Float32Array(analyser.fftSize);
+
+    monitorIntervalRef.current = setInterval(() => {
+      if (!analyserRef.current) return;
+
+      analyserRef.current.getFloatTimeDomainData(dataArray);
+
+      // Calculate RMS
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        sum += dataArray[i] * dataArray[i];
+      }
+      const rms = Math.sqrt(sum / dataArray.length);
+
+      if (rms > SILENCE_THRESHOLD) {
+        // Sound detected
+        if (!speechDetectedRef.current) {
+          speechDetectedRef.current = true;
+          speechStartTimeRef.current = Date.now();
+        }
+        // Clear any running silence timer
+        if (silenceTimerRef.current) {
+          clearTimeout(silenceTimerRef.current);
+          silenceTimerRef.current = null;
+        }
+      } else if (speechDetectedRef.current) {
+        // Silence after speech — start/continue silence timer
+        const speechDuration = Date.now() - speechStartTimeRef.current;
+        if (speechDuration >= MIN_SPEECH_DURATION && !silenceTimerRef.current) {
+          silenceTimerRef.current = setTimeout(() => {
+            stopRef.current();
+          }, SILENCE_DURATION);
+        }
+      }
+    }, 100);
   }, []);
 
   const start = useCallback(async () => {
@@ -118,23 +231,16 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
     recorder.start();
     setIsListening(true);
 
+    // Set up silence detection if enabled
+    if (autoStopRef.current) {
+      setupSilenceDetection(stream);
+    }
+
     // Auto-stop after 60 seconds
     maxDurationRef.current = setTimeout(() => {
-      stop();
+      stopRef.current();
     }, 60000);
-  }, []);
-
-  const stop = useCallback(() => {
-    if (maxDurationRef.current) {
-      clearTimeout(maxDurationRef.current);
-      maxDurationRef.current = null;
-    }
-    if (mediaRecorderRef.current?.state === "recording") {
-      mediaRecorderRef.current.stop();
-    }
-    mediaRecorderRef.current = null;
-    setIsListening(false);
-  }, []);
+  }, [setupSilenceDetection]);
 
   return {
     isListening,
