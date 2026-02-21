@@ -92,10 +92,12 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
     };
 
     recognition.onend = () => {
+      recognitionRef.current = null;
       setIsListening(false);
     };
 
     recognition.onerror = () => {
+      recognitionRef.current = null;
       setIsListening(false);
     };
 
@@ -106,7 +108,14 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
   }, []);
 
   const stop = useCallback(() => {
-    recognitionRef.current?.stop();
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch {
+        // Already stopped
+      }
+      recognitionRef.current = null;
+    }
     setIsListening(false);
   }, []);
 
