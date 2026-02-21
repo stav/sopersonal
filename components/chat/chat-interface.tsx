@@ -1,7 +1,7 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { UIMessage } from "ai";
 import { MessageBubble } from "./message-bubble";
 import { ChatInput } from "./chat-input";
@@ -27,6 +27,11 @@ export function ChatInterface() {
   const lastAssistantMessage = [...messages]
     .reverse()
     .find((m) => m.role === "assistant");
+
+  const handleTranscript = useCallback(
+    (text: string) => sendMessage({ text }),
+    [sendMessage]
+  );
 
   return (
     <div className="flex h-full flex-col">
@@ -71,7 +76,7 @@ export function ChatInterface() {
       {/* Voice button */}
       <div className="flex justify-center py-2">
         <VoiceButton
-          onTranscript={(text) => sendMessage({ text })}
+          onTranscript={handleTranscript}
           isProcessing={isLoading}
           lastAssistantMessage={
             lastAssistantMessage ? getMessageText(lastAssistantMessage) : undefined

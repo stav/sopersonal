@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useSpeechRecognition } from "@/lib/voice/use-speech-recognition";
 import { useSpeechSynthesis } from "@/lib/voice/use-speech-synthesis";
 import type { VoiceState } from "@/lib/voice/voice-manager";
@@ -58,9 +58,16 @@ export function VoiceButton({
     }
   }, [isListening, isTranscribing, isProcessing, isSpeaking]);
 
-  // When transcription completes and we have a transcript, submit it
+  // When transcription completes and we have a transcript, submit it (once)
+  const submittedTranscriptRef = useRef<string>("");
   useEffect(() => {
-    if (!isListening && !isTranscribing && transcript.trim()) {
+    if (
+      !isListening &&
+      !isTranscribing &&
+      transcript.trim() &&
+      transcript !== submittedTranscriptRef.current
+    ) {
+      submittedTranscriptRef.current = transcript;
       onTranscript(transcript);
     }
   }, [isListening, isTranscribing, transcript, onTranscript]);
@@ -81,6 +88,7 @@ export function VoiceButton({
   const handlePress = useCallback(async () => {
     switch (voiceState) {
       case "IDLE":
+        submittedTranscriptRef.current = "";
         await start();
         break;
       case "LISTENING":

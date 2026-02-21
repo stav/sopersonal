@@ -25,11 +25,8 @@ self.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Network-first for API routes
-  if (url.pathname.startsWith("/api/")) {
-    event.respondWith(
-      fetch(request).catch(() => caches.match(request))
-    );
+  // API routes and POST requests — network only, skip cache
+  if (url.pathname.startsWith("/api/") || request.method !== "GET") {
     return;
   }
 
