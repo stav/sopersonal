@@ -33,7 +33,10 @@ export async function POST(req: Request) {
     );
   }
 
-  const { messages }: { messages: UIMessage[] } = await req.json();
+  const { messages: allMessages }: { messages: UIMessage[] } = await req.json();
+
+  // Keep only the last 20 messages to stay within token limits
+  const messages = allMessages.slice(-20);
 
   // Extract text from the last user message for RAG
   const lastUserMessage = [...messages]
