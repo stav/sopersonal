@@ -76,6 +76,8 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
       const blob = new Blob(chunksRef.current, { type: mimeType });
       chunksRef.current = [];
 
+      console.log(`Audio: ${(blob.size / 1024).toFixed(1)}KB, type: ${blob.type}`);
+
       if (blob.size === 0) {
         setError("No audio recorded.");
         return;

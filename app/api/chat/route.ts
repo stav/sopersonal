@@ -65,5 +65,13 @@ export async function POST(req: Request) {
 
   return result.toUIMessageStreamResponse({
     headers: { "X-RateLimit-Remaining": String(remaining) },
+    sendReasoning: false,
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("rate_limit")) {
+        return "AI rate limit reached. Please try again later.";
+      }
+      return "Something went wrong. Please try again.";
+    },
   });
 }
