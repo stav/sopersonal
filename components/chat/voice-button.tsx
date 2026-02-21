@@ -16,13 +16,23 @@ export function VoiceButton({
   isProcessing,
   lastAssistantMessage,
 }: VoiceButtonProps) {
-  const { isListening, transcript, isSupported: sttSupported, start, stop } =
+  const { isListening, transcript, isSupported: sttSupported, error, start, stop } =
     useSpeechRecognition();
   const { isSpeaking, isSupported: ttsSupported, speak, cancel } =
     useSpeechSynthesis();
 
   const [voiceState, setVoiceState] = useState<VoiceState>("IDLE");
   const [lastSpoken, setLastSpoken] = useState<string>("");
+
+  // Auto-clear errors after 4 seconds
+  const [displayError, setDisplayError] = useState<string | null>(null);
+  useEffect(() => {
+    if (error) {
+      setDisplayError(error);
+      const timer = setTimeout(() => setDisplayError(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
 
   // Derive voice state from the constituent states
   useEffect(() => {
@@ -57,10 +67,10 @@ export function VoiceButton({
     }
   }, [lastAssistantMessage, isProcessing, ttsSupported, speak, lastSpoken]);
 
-  const handlePress = useCallback(() => {
+  const handlePress = useCallback(async () => {
     switch (voiceState) {
       case "IDLE":
-        start();
+        await start();
         break;
       case "LISTENING":
         stop();
@@ -74,7 +84,17 @@ export function VoiceButton({
     }
   }, [voiceState, start, stop, cancel]);
 
-  if (!sttSupported) return null;
+  if (!sttSupported) {
+    return (
+      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted text-muted-foreground opacity-60" title="Voice not supported on this browser">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+          <line x1="1" y1="1" x2="23" y2="23" />
+        </svg>
+      </div>
+    );
+  }
 
   const stateConfig: Record<VoiceState, { icon: React.ReactNode; label: string; className: string }> = {
     IDLE: {
@@ -127,14 +147,19 @@ export function VoiceButton({
   const config = stateConfig[voiceState];
 
   return (
-    <button
-      onClick={handlePress}
-      disabled={voiceState === "PROCESSING"}
-      className={`flex h-16 w-16 items-center justify-center rounded-full shadow-lg transition-all disabled:opacity-60 ${config.className}`}
-      aria-label={config.label}
-      title={config.label}
-    >
-      {config.icon}
-    </button>
+    <div className="flex flex-col items-center gap-2">
+      <button
+        onClick={handlePress}
+        disabled={voiceState === "PROCESSING"}
+        className={`flex h-16 w-16 items-center justify-center rounded-full shadow-lg transition-all disabled:opacity-60 ${config.className}`}
+        aria-label={config.label}
+        title={config.label}
+      >
+        {config.icon}
+      </button>
+      {displayError && (
+        <p className="max-w-48 text-center text-xs text-red-500">{displayError}</p>
+      )}
+    </div>
   );
 }

@@ -6,7 +6,8 @@ interface SpeechRecognitionHook {
   isListening: boolean;
   transcript: string;
   isSupported: boolean;
-  start: () => void;
+  error: string | null;
+  start: () => Promise<void>;
   stop: () => void;
 }
 
@@ -57,6 +58,7 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [isSupported, setIsSupported] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
 
   useEffect(() => {
@@ -66,16 +68,28 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
   }, []);
 
   const start = useCallback(async () => {
+    setError(null);
+
     const SpeechRecognition =
       window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
+    if (!SpeechRecognition) {
+      setError("Speech recognition is not supported on this browser.");
+      return;
+    }
 
     // Pre-request mic permission — PWA standalone mode needs this
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream.getTracks().forEach((t) => t.stop());
-    } catch {
-      // Permission denied or no mic
+    } catch (err) {
+      const name = err instanceof DOMException ? err.name : "";
+      if (name === "NotAllowedError") {
+        setError("Microphone permission denied. Check your browser/phone settings.");
+      } else if (name === "NotFoundError") {
+        setError("No microphone found on this device.");
+      } else {
+        setError("Could not access microphone.");
+      }
       return;
     }
 
@@ -105,9 +119,16 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
       setIsListening(false);
     };
 
-    recognition.onerror = () => {
+    recognition.onerror = (event: Event & { error: string }) => {
       recognitionRef.current = null;
       setIsListening(false);
+      const errorMap: Record<string, string> = {
+        "not-allowed": "Microphone permission denied.",
+        "no-speech": "No speech detected. Try again.",
+        "network": "Network error. Check your connection.",
+        "audio-capture": "No microphone found.",
+      };
+      setError(errorMap[event.error] || `Speech recognition error: ${event.error}`);
     };
 
     recognitionRef.current = recognition;
@@ -128,5 +149,5 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
     setIsListening(false);
   }, []);
 
-  return { isListening, transcript, isSupported, start, stop };
+  return { isListening, transcript, isSupported, error, start, stop };
 }
